@@ -50,7 +50,7 @@ for row in rows:
     if not a_tag:
         continue
 
-    title = a_tag.text.strip()
+    title = a_tag.text.replace("\n", "").strip()
 
     if title in existing_titles:
         print("스킵:", title)
