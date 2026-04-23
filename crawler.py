@@ -1,8 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import re
 
-# 🔑 환경변수 (GitHub에서 가져옴)
+# 🔑 환경변수
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 DATABASE_ID = os.getenv("DATABASE_ID")
 
@@ -16,7 +17,7 @@ headers = {
 def convert_date(date_str):
     return date_str.replace(".", "-").strip("-")
 
-# 🔥 기존 데이터
+# 🔥 기존 데이터 (중복 방지)
 def get_existing_titles():
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
     res = requests.post(url, headers=headers)
@@ -34,8 +35,9 @@ def get_existing_titles():
     return titles
 
 existing_titles = get_existing_titles()
+print("기존 데이터 개수:", len(existing_titles))
 
-# 📡 목록 페이지 요청
+# 📡 국세청 목록 페이지
 url = "https://www.nts.go.kr/nts/na/ntt/selectNttList.do?mi=2201&bbsId=1028"
 
 res = requests.get(url)
@@ -50,12 +52,20 @@ for row in rows:
     if not a_tag:
         continue
 
-    title = a_tag.text.replace("\n", "").strip()
+    # 🔥🔥🔥 핵심 수정 (문자열 정리)
+    raw_title = a_tag.text
+
+    title = re.sub(r"\s+", " ", raw_title).strip()   # 공백 정리
+    title = re.sub(r"^N\s*", "", title)             # 앞에 N 제거
+
+    if not title:
+        continue
 
     if title in existing_titles:
         print("스킵:", title)
         continue
 
+    # 🔥 날짜
     tds = row.select("td")
     raw_date = tds[3].text.strip()
     date = convert_date(raw_date)
@@ -75,10 +85,13 @@ for row in rows:
         fileId = parts[7]
         fileKey = parts[9]
     except:
+        print("❌ 파싱 실패")
         continue
 
     # 🔥 viewer 링크 생성
     viewer_link = f"https://doc.nts.go.kr:8080/SynapDocViewServer/job?fileType=URL&convertType=1&sync=true&filePath=http://www.nts.go.kr/comm/nttFileDownload.do?fileKey={fileKey}&fid={fileId}{fileKey}"
+
+    print("링크:", viewer_link)
 
     # 📤 노션 업로드
     data = {
@@ -101,4 +114,7 @@ for row in rows:
 
     res = requests.post("https://api.notion.com/v1/pages", headers=headers, json=data)
 
-    print("결과:", res.status_code)
+    if res.status_code == 200:
+        print("🎉 성공:", title)
+    else:
+        print("❌ 실패:", res.text)
