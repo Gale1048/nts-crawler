@@ -1,8 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import re
 
-# 🔑 환경변수 (GitHub에서 가져옴)
+# 🔑 환경변수
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 DATABASE_ID = os.getenv("DATABASE_ID")
 
@@ -12,18 +13,15 @@ headers = {
     "Notion-Version": "2022-06-28"
 }
 
-# 🔥 날짜 변환
 def convert_date(date_str):
     return date_str.replace(".", "-").strip("-")
 
-# 🔥 기존 데이터
 def get_existing_titles():
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
     res = requests.post(url, headers=headers)
     data = res.json()
 
     titles = set()
-
     for item in data.get("results", []):
         try:
             t = item["properties"]["제목"]["title"][0]["text"]["content"]
@@ -34,10 +32,10 @@ def get_existing_titles():
     return titles
 
 existing_titles = get_existing_titles()
+print("기존 데이터 개수:", len(existing_titles))
 
-# 📡 목록 페이지 요청
+# 📡 페이지 요청
 url = "https://www.nts.go.kr/nts/na/ntt/selectNttList.do?mi=2201&bbsId=1028"
-
 res = requests.get(url)
 soup = BeautifulSoup(res.text, "html.parser")
 
@@ -46,41 +44,61 @@ rows.reverse()
 
 for row in rows:
     a_tag = row.select_one("a")
-
     if not a_tag:
         continue
 
-    title = a_tag.text.strip()
+    # ✅ 제목 정리 (N + 공백)
+    raw_title = a_tag.text
+    title = re.sub(r"\s+", " ", raw_title).strip()
+    title = re.sub(r"^N\s*", "", title)
+
+    if not title:
+        continue
 
     if title in existing_titles:
         print("스킵:", title)
         continue
 
+    # 날짜
     tds = row.select("td")
     raw_date = tds[3].text.strip()
     date = convert_date(raw_date)
 
-    print("처리:", title)
+    print("\n처리:", title)
 
-    # 🔥 JS 파라미터 추출
+    # 🔥 핵심: href + onclick 둘 다 대응
     onclick = a_tag.get("href")
 
-    if "javascript" not in onclick:
+    if not onclick or onclick.strip() == "javascript:;":
+        onclick = a_tag.get("onclick")
+
+    print("JS:", onclick)
+
+    if not onclick:
+        print("❌ 링크 없음 → 스킵")
         continue
 
-    parts = onclick.split("'")
+    # 🔥 파싱
+    matches = re.findall(r"'(.*?)'", onclick)
+
+    if len(matches) < 5:
+        print("❌ 파싱 실패:", onclick)
+        continue
 
     try:
-        nttId = parts[5]
-        fileId = parts[7]
-        fileKey = parts[9]
+        nttId = matches[2]
+        fileId = matches[3]
+        fileKey = matches[4]
     except:
+        print("❌ 파싱 오류:", onclick)
         continue
 
-    # 🔥 viewer 링크 생성
+    # 🔥 링크 생성
     viewer_link = f"https://doc.nts.go.kr:8080/SynapDocViewServer/job?fileType=URL&convertType=1&sync=true&filePath=http://www.nts.go.kr/comm/nttFileDownload.do?fileKey={fileKey}&fid={fileId}{fileKey}"
 
-    # 📤 노션 업로드
+    print("링크:", viewer_link)
+
+    # 노션 업로드
     data = {
         "parent": {"database_id": DATABASE_ID},
         "properties": {
@@ -101,4 +119,7 @@ for row in rows:
 
     res = requests.post("https://api.notion.com/v1/pages", headers=headers, json=data)
 
-    print("결과:", res.status_code)
+    if res.status_code == 200:
+        print("🎉 성공:", title)
+    else:
+        print("❌ 실패:", res.text)
