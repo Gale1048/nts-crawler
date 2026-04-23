@@ -17,7 +17,7 @@ headers = {
 def convert_date(date_str):
     return date_str.replace(".", "-").strip("-")
 
-# 🔥 기존 데이터 (중복 방지)
+# 🔥 기존 데이터 조회 (중복 방지)
 def get_existing_titles():
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
     res = requests.post(url, headers=headers)
@@ -52,11 +52,10 @@ for row in rows:
     if not a_tag:
         continue
 
-    # 🔥🔥🔥 핵심 수정 (문자열 정리)
+    # 🔥 제목 정리 (핵심)
     raw_title = a_tag.text
-
     title = re.sub(r"\s+", " ", raw_title).strip()   # 공백 정리
-    title = re.sub(r"^N\s*", "", title)             # 앞에 N 제거
+    title = re.sub(r"^N\s*", "", title)             # 앞의 N 제거
 
     if not title:
         continue
@@ -70,22 +69,23 @@ for row in rows:
     raw_date = tds[3].text.strip()
     date = convert_date(raw_date)
 
-    print("처리:", title)
+    print("\n처리:", title)
 
-    # 🔥 JS 파라미터 추출
+    # 🔥 onclick 파싱 (핵심 수정)
     onclick = a_tag.get("href")
+    print("onclick:", onclick)
 
     if "javascript" not in onclick:
         continue
 
-    parts = onclick.split("'")
+    matches = re.findall(r"'(.*?)'", onclick)
 
     try:
-        nttId = parts[5]
-        fileId = parts[7]
-        fileKey = parts[9]
+        nttId = matches[2]
+        fileId = matches[3]
+        fileKey = matches[4]
     except:
-        print("❌ 파싱 실패")
+        print("❌ 파싱 실패:", onclick)
         continue
 
     # 🔥 viewer 링크 생성
